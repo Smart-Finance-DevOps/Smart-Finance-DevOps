@@ -3,10 +3,14 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import mongoose from "mongoose";
+import fs from "fs";
 import authRoutes from "./routes/auth.js";
 import expenseRoutes from "./routes/expenses.js";
 import groupRoutes from "./routes/groups.js";
 import receiptRoutes from "./routes/receipt.js";
+
+// Ensure multer upload directory exists
+if (!fs.existsSync("tmp")) fs.mkdirSync("tmp");
 
 const app = express();
 

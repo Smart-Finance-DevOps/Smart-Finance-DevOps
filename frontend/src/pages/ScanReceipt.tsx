@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import { addExpense, getUser } from "@/lib/storage";
 
 const categories = ["Food", "Travel", "Shopping", "Bills", "Groceries", "Others"] as const;
+
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
 const ScanReceipt = () => {
   const navigate = useNavigate();
@@ -14,6 +16,7 @@ const ScanReceipt = () => {
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string>("");
 
   useEffect(() => {
     const user = getUser();
@@ -32,18 +35,38 @@ const ScanReceipt = () => {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  const mockOcr = async () => {
+  const scanReceipt = async () => {
     if (!file) return;
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 700));
-    // Very simple mock: infer amount-like number in filename, fallback to a friendly default
-    const match = file.name.match(/(\d+[\._]?\d{0,2})/);
-    const inferredAmount = match ? Number(match[1].replace(/_/g, ".")) : Math.round(200 + Math.random() * 1200);
-    const inferredCategory = inferCategoryFromName(file.name);
-    setAmount(inferredAmount);
-    setCategory(inferredCategory);
-    if (!description) setDescription(file.name.replace(/\.[^.]+$/, ""));
-    setLoading(false);
+    setErrorMsg("");
+
+    try {
+      const token = localStorage.getItem("smartfinance_token");
+      const formData = new FormData();
+      formData.append("receipt", file);
+
+      const res = await fetch(`${API_BASE}/api/receipt/scan`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Scan failed");
+      }
+
+      const draft = data.draftExpense;
+      if (draft.amount != null) setAmount(draft.amount);
+      if (draft.category && categories.includes(draft.category)) setCategory(draft.category);
+      if (draft.description) setDescription(draft.description);
+      if (draft.date) setDate(draft.date);
+    } catch (err: any) {
+      setErrorMsg(err.message || "Receipt scan failed. You can fill in the details manually.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const save = () => {
@@ -61,7 +84,7 @@ const ScanReceipt = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-2xl font-semibold mb-6">Scan Receipt (Mocked)</h1>
+        <h1 className="text-2xl font-semibold mb-6">Scan Receipt</h1>
 
         <div className="grid md:grid-cols-2 gap-6">
           <div className="rounded-2xl p-6 shadow-md border border-border bg-card">
@@ -70,7 +93,10 @@ const ScanReceipt = () => {
               <input
                 type="file"
                 accept="image/*"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  setFile(e.target.files?.[0] || null);
+                  setErrorMsg("");
+                }}
               />
               <div className="text-xs text-muted-foreground mt-2">Drop or choose a file</div>
             </div>
@@ -88,12 +114,18 @@ const ScanReceipt = () => {
               <h2 className="text-lg font-semibold">Recognized Details</h2>
               <button
                 disabled={!file || loading}
-                onClick={mockOcr}
+                onClick={scanReceipt}
                 className="px-3 py-2 rounded-md border border-border hover:bg-muted disabled:opacity-50"
               >
                 {loading ? "Analyzing..." : "Auto-fill from Image"}
               </button>
             </div>
+
+            {errorMsg && (
+              <div className="mb-3 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
+                {errorMsg}
+              </div>
+            )}
 
             <label className="block text-sm mb-1">Amount</label>
             <input
@@ -142,27 +174,4 @@ const ScanReceipt = () => {
   );
 };
 
-function inferCategoryFromName(name: string): typeof categories[number] {
-  const lower = name.toLowerCase();
-  if (/(food|pizza|meal|dinner|lunch|cafe|restaurant)/.test(lower)) return "Food";
-  if (/(uber|ola|cab|flight|train|bus|travel|hotel)/.test(lower)) return "Travel";
-  if (/(bill|electric|water|wifi|recharge)/.test(lower)) return "Bills";
-  if (/(grocery|market|supermarket)/.test(lower)) return "Groceries";
-  if (/(shop|amazon|flipkart|store)/.test(lower)) return "Shopping";
-  return "Others";
-}
-
 export default ScanReceipt;
-
-
-
-
-
-
-
-
-
-
-
-
-
