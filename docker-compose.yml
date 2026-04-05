@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  # ── MongoDB ─────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7.0
+    container_name: smartfinance-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - smartfinance-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: smartfinance-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/smartfinance
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      OCR_SERVICE_URL: http://receipt-ocr:5001
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - smartfinance-net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Receipt OCR ─────────────────────────────────────────────────
+  receipt-ocr:
+    build:
+      context: ./receipt-ocr
+      dockerfile: Dockerfile
+    container_name: smartfinance-ocr
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      - ocr_tmp:/app/tmp
+    networks:
+      - smartfinance-net
+
+  # ── Frontend ────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: smartfinance-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+      - receipt-ocr
+    networks:
+      - smartfinance-net
+
+# ── Volumes ──────────────────────────────────────────────────────
+volumes:
+  mongo_data:
+  ocr_tmp:
+
+# ── Networks ─────────────────────────────────────────────────────
+networks:
+  smartfinance-net:
+    driver: bridge
